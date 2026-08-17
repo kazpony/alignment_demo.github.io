@@ -1,7 +1,8 @@
 /* =====================================================================
- * app.js  —  計測ステートマシン / セッション管理 / UI配線
- * ---------------------------------------------------------------------
- * 依存: estimator.js (window.Estimator), sensors.js (window.Sensors)
+ * app.js  —  計測ステートマシン / セッション管理 / UI配線（v2）
+ *   変更点: 「押し開始→(ゆっくり転がす)→停止＆判定」方式。
+ *           estimateFromRollV2（スピン補正+速度/変位+ZUPT）を使用。
+ *   依存: estimator.js (window.Estimator), sensors.js (window.Sensors)
  * ===================================================================== */
 (function () {
   'use strict';
@@ -13,10 +14,11 @@
 
   // ------- 設定（UIから変更可）-------
   const cfg = {
-    yawThreshDeg: 1.0,   // 直進ゲート閾値（広がり指標）
-    minTransAccel: 0.6,  // 最小並進加速度 [m/s^2]
-    nAccept: 3,          // 各輪の採用回数
-    staticMs: 1500,      // 静止取得時間
+    curveThreshDeg: 2.0,  // 直進ゲート: 軌跡の曲がり角上限
+    minDisp_m: 0.05,      // 直進ゲート: 最小到達変位 [m]（既定5cm）
+    nAccept: 3,           // 各輪の採用回数
+    staticMs: 1500,       // 静止取得時間
+    maxRollMs: 10000,     // 押しの最大時間（安全停止）
   };
 
   // ------- 状態 -------
@@ -26,11 +28,8 @@
     wheel: 'FL',
     gyroBias: [0, 0, 0],
     accelStatic: [0, 0, 9.81],
-    buffer: [],          // rolling中のサンプル
-    accepted: {},        // wheel -> [toe...]
-    camber: {},          // wheel -> [camber...]
-    results: {},         // wheel -> {toe, camber, ...}
-    rawlog: [],          // 全生ログ
+    buffer: [],
+    accepted: {}, camber: {}, results: {}, rawlog: [],
     lastEffHz: 0,
   };
   WHEELS.forEach(w => { state.accepted[w] = []; state.camber[w] = []; });
@@ -38,20 +37,21 @@
   // ------- DOM -------
   const $ = (id) => document.getElementById(id);
   const el = {};
-  ['status','effhz','mode','wheel','phase','liveCamber','liveGate',
-   'acceptCount','log','startBtn','staticBtn','armBtn','resetBtn','csvBtn',
-   'wheelSel','yawThresh','nAccept','results','permBtn'].forEach(id => el[id] = $(id));
+  ['status','effhz','mode','wheel','phase','liveCamber','liveDisp','liveCurve',
+   'acceptCount','log','startBtn','staticBtn','rollStartBtn','rollStopBtn',
+   'resetBtn','csvBtn','wheelSel','curveThresh','minDisp','nAccept','results','permBtn']
+   .forEach(id => el[id] = $(id));
 
   function logLine(s) {
     const t = new Date().toLocaleTimeString();
     el.log.textContent = `[${t}] ${s}\n` + el.log.textContent;
   }
   function setStatus(s) { el.status.textContent = s; }
+  const f = (x) => Math.round(x * 1000) / 1000;
 
   // ------- センサ購読 -------
-  let rollingStart = 0;
+  let rollTimer = null;
   function onSample(sample) {
-    // 生ログ（rolling中のみ保存して肥大化防止）
     if (state.phase === 'rolling' || state.phase === 'static') {
       state.rawlog.push({
         t_ms: Math.round(sample.t_ms), wheel: state.wheel, phase: state.phase,
@@ -60,21 +60,16 @@
         gx: f(sample.gyro[0]), gy: f(sample.gyro[1]), gz: f(sample.gyro[2]),
       });
     }
-
     if (state.phase === 'static') {
-      state._staticAccel.push(sample.accel);
-      state._staticGyro.push(sample.gyro);
+      state._sA.push(sample.accel); state._sG.push(sample.gyro);
     } else if (state.phase === 'rolling') {
       state.buffer.push(sample);
     }
-
-    // ライブ表示（キャンバー: 静止治具仮定）
-    const camNow = E.camberStatic(sample.accel, [0, 0, 1]);
-    el.liveCamber.textContent = camNow.toFixed(2) + '°';
+    // ライブ: 静止キャンバー & 実効Hz
+    el.liveCamber.textContent = E.camberStatic(sample.accel, [0, 0, 1]).toFixed(2) + '°';
     state.lastEffHz = state.hub.effectiveHz;
     el.effhz.textContent = state.lastEffHz.toFixed(0) + ' Hz';
   }
-  const f = (x) => Math.round(x * 1000) / 1000;
 
   // ------- フロー -------
   async function requestPerm() {
@@ -86,7 +81,7 @@
     try {
       const mode = await state.hub.start(onSample);
       el.mode.textContent = mode;
-      setStatus('センサ起動: ' + mode + '（治具で端末をハブに固定してください）');
+      setStatus('センサ起動: ' + mode + '（治具で端末をハブ中心に固定）');
       logLine('センサ起動 mode=' + mode);
       el.startBtn.disabled = true;
       el.staticBtn.disabled = false;
@@ -97,81 +92,74 @@
   }
 
   function takeStatic() {
-    state.phase = 'static';
-    state._staticAccel = [];
-    state._staticGyro = [];
+    state.phase = 'static'; state._sA = []; state._sG = [];
     el.phase.textContent = '静止取得中…';
     setStatus('静止取得中… 端末を動かさないでください');
     setTimeout(() => {
-      const A = E.V.mean(state._staticAccel);
-      const Gb = E.V.mean(state._staticGyro);
-      state.accelStatic = A;
-      state.gyroBias = Gb;
-      // 静止キャンバーを記録
+      const A = E.V.mean(state._sA), Gb = E.V.mean(state._sG);
+      state.accelStatic = A; state.gyroBias = Gb;
       const cam = E.camberStatic(A, [0, 0, 1]);
-      state.camber[state.wheel].push(cam);
       state.phase = 'armed';
-      el.phase.textContent = '準備OK（押してください）';
-      setStatus(`静止取得完了. キャンバー=${cam.toFixed(2)}°  次に前後へ短く押す`);
-      logLine(`[${state.wheel}] static: camber=${cam.toFixed(2)}° gyroBias=[${Gb.map(x=>x.toExponential(1)).join(',')}]`);
-      el.armBtn.disabled = false;
+      el.phase.textContent = '準備OK';
+      setStatus(`静止取得完了 キャンバー=${cam.toFixed(2)}°  ②押し開始→ゆっくり転がす→③停止`);
+      logLine(`[${state.wheel}] static camber=${cam.toFixed(2)}°`);
+      el.rollStartBtn.disabled = false;
+      el.rollStopBtn.disabled = true;
     }, cfg.staticMs);
   }
 
-  function armRoll() {
-    if (state.phase !== 'armed' && state.phase !== 'rolling') {
-      setStatus('先に静止取得を行ってください');
-      return;
-    }
-    state.phase = 'rolling';
-    state.buffer = [];
-    rollingStart = performance.now();
-    el.phase.textContent = '計測中…（前後に短く強く）';
-    setStatus('押しを計測中… 2秒後に自動判定');
-    // 2秒間バッファリング → 判定
-    setTimeout(evaluatePush, 2000);
+  function rollStart() {
+    if (state.phase !== 'armed') { setStatus('先に①静止取得を行ってください'); return; }
+    state.phase = 'rolling'; state.buffer = [];
+    el.phase.textContent = '計測中…（ゆっくりでOK）';
+    setStatus('計測中… 前後どちらかへゆっくり転がし、止めたら③停止');
+    el.liveDisp.textContent = '計測中';
+    el.rollStartBtn.disabled = true;
+    el.rollStopBtn.disabled = false;
+    rollTimer = setTimeout(() => { if (state.phase === 'rolling') { logLine('最大時間で自動停止'); rollStop(); } }, cfg.maxRollMs);
   }
 
-  function evaluatePush() {
+  function rollStop() {
     if (state.phase !== 'rolling') return;
+    if (rollTimer) { clearTimeout(rollTimer); rollTimer = null; }
     const samples = state.buffer.slice();
     state.phase = 'armed';
+    el.rollStartBtn.disabled = false;
+    el.rollStopBtn.disabled = true;
+
     if (samples.length < 20) {
-      setStatus('サンプル不足。もう一度押してください');
-      logLine('push: サンプル不足 n=' + samples.length);
-      return;
+      setStatus('サンプル不足。もう一度②から'); logLine('停止: サンプル不足 n=' + samples.length); return;
     }
-    const res = E.estimateFromRoll(samples, state.accelStatic, state.gyroBias);
-    const gate = E.straightGate(res, cfg);
-    el.liveGate.textContent = res.dyaw_deg.toFixed(2);
+    const res = E.estimateFromRollV2(samples, state.accelStatic, state.gyroBias);
+    const gate = E.straightGateV2(res, cfg);
+    el.liveDisp.textContent = (res.disp_m * 100).toFixed(1) + 'cm';
+    el.liveCurve.textContent = res.curve_deg.toFixed(2) + '°';
+
     if (gate.accepted) {
       state.accepted[state.wheel].push(res.toe_deg);
       state.camber[state.wheel].push(res.camber_deg);
-      logLine(`[${state.wheel}] 採用 toe=${res.toe_deg.toFixed(2)}° camber=${res.camber_deg.toFixed(2)}° 広がり=${res.dyaw_deg.toFixed(2)}`);
+      logLine(`[${state.wheel}] 採用 toe=${res.toe_deg.toFixed(2)}° cam=${res.camber_deg.toFixed(2)}° 変位=${(res.disp_m*100).toFixed(0)}cm 曲=${res.curve_deg.toFixed(2)}° スピン=${res.spinAngle_deg.toFixed(0)}°`);
       setStatus(`採用 (${state.accepted[state.wheel].length}/${cfg.nAccept}) toe=${res.toe_deg.toFixed(2)}°`);
     } else {
-      const why = gate.reason === 'curved' ? '曲がりました' : '押しが弱い';
-      logLine(`[${state.wheel}] 棄却(${why}) 広がり=${res.dyaw_deg.toFixed(2)} 強さ=${res.transStrength.toFixed(2)}`);
-      setStatus(`やり直し: ${why}（広がり=${res.dyaw_deg.toFixed(2)}°）`);
+      const why = gate.reason === 'curved'
+        ? `曲がりました(${res.curve_deg.toFixed(1)}°>${cfg.curveThreshDeg}°)`
+        : `動きが小さい(${(res.disp_m*100).toFixed(0)}cm<${(cfg.minDisp_m*100).toFixed(0)}cm)`;
+      logLine(`[${state.wheel}] 棄却 ${why}`);
+      setStatus(`やり直し: ${why}`);
     }
     el.acceptCount.textContent = `${state.accepted[state.wheel].length}/${cfg.nAccept}`;
-
-    if (state.accepted[state.wheel].length >= cfg.nAccept) {
-      finalizeWheel();
-    }
+    if (state.accepted[state.wheel].length >= cfg.nAccept) finalizeWheel();
   }
 
   function finalizeWheel() {
     const toe = E.stats(state.accepted[state.wheel]);
     const cam = E.stats(state.camber[state.wheel]);
     state.results[state.wheel] = {
-      wheel: state.wheel,
-      toe_deg: toe.mean, toe_sd: toe.sd,
-      camber_deg: cam.mean, camber_sd: cam.sd,
-      n_accepted: toe.n,
+      wheel: state.wheel, toe_deg: toe.mean, toe_sd: toe.sd,
+      camber_deg: cam.mean, camber_sd: cam.sd, n_accepted: toe.n,
     };
-    logLine(`★ [${state.wheel}] 確定 toe=${toe.mean.toFixed(2)}±${toe.sd.toFixed(2)}° camber=${cam.mean.toFixed(2)}°`);
-    setStatus(`[${state.wheel}] 確定。次の輪を選択してください`);
+    logLine(`★ [${state.wheel}] 確定 toe=${toe.mean.toFixed(2)}±${toe.sd.toFixed(2)}° cam=${cam.mean.toFixed(2)}°`);
+    setStatus(`[${state.wheel}] 確定。次の輪を選択`);
     renderResults();
   }
 
@@ -179,19 +167,13 @@
     let html = '<table><thead><tr><th>輪</th><th>キャンバー</th><th>トー</th><th>1σ</th><th>n</th></tr></thead><tbody>';
     for (const w of WHEELS) {
       const r = state.results[w];
-      if (r) {
-        html += `<tr><td>${WHEEL_LABEL[w]}</td><td>${r.camber_deg.toFixed(2)}°</td>`
-             + `<td>${r.toe_deg.toFixed(2)}°</td><td>±${r.toe_sd.toFixed(2)}</td><td>${r.n_accepted}</td></tr>`;
-      } else {
-        html += `<tr class="pending"><td>${WHEEL_LABEL[w]}</td><td>—</td><td>—</td><td>—</td><td>0</td></tr>`;
-      }
+      html += r
+        ? `<tr><td>${WHEEL_LABEL[w]}</td><td>${r.camber_deg.toFixed(2)}°</td><td>${r.toe_deg.toFixed(2)}°</td><td>±${r.toe_sd.toFixed(2)}</td><td>${r.n_accepted}</td></tr>`
+        : `<tr class="pending"><td>${WHEEL_LABEL[w]}</td><td>—</td><td>—</td><td>—</td><td>0</td></tr>`;
     }
     html += '</tbody></table>';
-
-    // 派生量（4輪揃ったら）
     if (WHEELS.every(w => state.results[w])) {
-      const toes = {};
-      WHEELS.forEach(w => toes[w] = state.results[w].toe_deg);
+      const toes = {}; WHEELS.forEach(w => toes[w] = state.results[w].toe_deg);
       const d = E.derived(toes);
       html += `<div class="derived">`
         + `<div><span>フロント総トー</span><b>${d.front_total_toe_deg.toFixed(2)}°</b> (${E.degToMm(d.front_total_toe_deg).toFixed(1)}mm)</div>`
@@ -205,34 +187,29 @@
 
   // ------- CSV -------
   function exportCSV() {
-    // 結果CSV
     const resRows = WHEELS.filter(w => state.results[w]).map(w => state.results[w]);
     let derivedRow = {};
     if (WHEELS.every(w => state.results[w])) {
       const toes = {}; WHEELS.forEach(w => toes[w] = state.results[w].toe_deg);
       derivedRow = E.derived(toes);
     }
-    const resCSV = E.toCSV(resRows,
-      ['wheel','camber_deg','camber_sd','toe_deg','toe_sd','n_accepted']);
-    const rawCSV = E.toCSV(state.rawlog,
-      ['t_ms','wheel','phase','ax','ay','az','lx','ly','lz','gx','gy','gz']);
-
+    const resCSV = E.toCSV(resRows, ['wheel','camber_deg','camber_sd','toe_deg','toe_sd','n_accepted']);
+    const rawCSV = E.toCSV(state.rawlog, ['t_ms','wheel','phase','ax','ay','az','lx','ly','lz','gx','gy','gz']);
     const meta = [
       '# alignment session ' + new Date().toISOString(),
-      '# cfg: yawThresh=' + cfg.yawThreshDeg + ' nAccept=' + cfg.nAccept +
-      ' minTransAccel=' + cfg.minTransAccel + ' effHz=' + state.lastEffHz.toFixed(0),
+      '# method: translation-reference v2 (spin-corrected, velocity/ZUPT)',
+      '# cfg: curveThresh=' + cfg.curveThreshDeg + ' minDisp_m=' + cfg.minDisp_m +
+      ' nAccept=' + cfg.nAccept + ' effHz=' + state.lastEffHz.toFixed(0),
       '# derived: ' + JSON.stringify(derivedRow),
       '', '## results', resCSV, '', '## rawlog', rawCSV, ''
     ].join('\n');
-
     download('alignment_' + Date.now() + '.csv', meta);
     logLine('CSVエクスポート完了');
   }
   function download(name, text) {
     const blob = new Blob([text], { type: 'text/csv' });
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
+    a.href = URL.createObjectURL(blob); a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
@@ -241,9 +218,7 @@
     WHEELS.forEach(w => { state.accepted[w] = []; state.camber[w] = []; delete state.results[w]; });
     state.rawlog = [];
     el.acceptCount.textContent = `0/${cfg.nAccept}`;
-    renderResults();
-    setStatus('リセットしました');
-    logLine('セッションリセット');
+    renderResults(); setStatus('リセットしました'); logLine('セッションリセット');
   }
 
   // ------- 配線 -------
@@ -251,7 +226,8 @@
     el.permBtn.onclick = requestPerm;
     el.startBtn.onclick = startSensors;
     el.staticBtn.onclick = takeStatic;
-    el.armBtn.onclick = armRoll;
+    el.rollStartBtn.onclick = rollStart;
+    el.rollStopBtn.onclick = rollStop;
     el.resetBtn.onclick = resetSession;
     el.csvBtn.onclick = exportCSV;
     el.wheelSel.onchange = () => {
@@ -260,29 +236,28 @@
       el.acceptCount.textContent = `${state.accepted[state.wheel].length}/${cfg.nAccept}`;
       setStatus('対象輪: ' + WHEEL_LABEL[state.wheel]);
     };
-    el.yawThresh.oninput = () => {
-      cfg.yawThreshDeg = parseFloat(el.yawThresh.value);
-      document.getElementById('yawThreshVal').textContent = cfg.yawThreshDeg.toFixed(2);
+    el.curveThresh.oninput = () => {
+      cfg.curveThreshDeg = parseFloat(el.curveThresh.value);
+      $('curveThreshVal').textContent = cfg.curveThreshDeg.toFixed(1);
+    };
+    el.minDisp.oninput = () => {
+      cfg.minDisp_m = parseInt(el.minDisp.value, 10) / 100;
+      $('minDispVal').textContent = (cfg.minDisp_m * 100).toFixed(0);
     };
     el.nAccept.oninput = () => {
       cfg.nAccept = parseInt(el.nAccept.value, 10);
-      document.getElementById('nAcceptVal').textContent = cfg.nAccept;
+      $('nAcceptVal').textContent = cfg.nAccept;
       el.acceptCount.textContent = `${state.accepted[state.wheel].length}/${cfg.nAccept}`;
     };
     el.wheel.textContent = WHEEL_LABEL[state.wheel];
     el.acceptCount.textContent = `0/${cfg.nAccept}`;
     renderResults();
   }
-
-  // Wake Lock（画面常時点灯）
   async function keepAwake() {
-    try { if ('wakeLock' in navigator) await navigator.wakeLock.request('screen'); }
-    catch (e) { /* noop */ }
+    try { if ('wakeLock' in navigator) await navigator.wakeLock.request('screen'); } catch (e) {}
   }
-
   window.addEventListener('DOMContentLoaded', () => {
-    bind();
-    keepAwake();
+    bind(); keepAwake();
     setStatus('「権限」→「センサ起動」から開始してください');
   });
 })();

@@ -4,8 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0b7285" />
-  <title>ホイールアライメント計測（並進基準法）</title>
-  <!-- GitHub Pages サブパス配信のため、manifest/アイコンは相対パス -->
+  <title>ホイールアライメント計測（並進基準法 v2）</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
   <link rel="stylesheet" href="./styles.css" />
@@ -13,7 +12,7 @@
 <body>
   <header>
     <h1>🛞 ホイールアライメント計測</h1>
-    <p class="sub">並進基準法 / 逐次1台方式（磁気不使用）</p>
+    <p class="sub">並進基準法 v2 / 逐次1台・スピン補正・低速対応</p>
   </header>
 
   <section class="card status-card">
@@ -32,7 +31,7 @@
       <button id="permBtn" class="btn">権限</button>
       <button id="startBtn" class="btn primary">センサ起動</button>
     </div>
-    <p class="hint">※ HTTPS 必須（GitHub Pages は自動でHTTPS）。Android Chrome 推奨。</p>
+    <p class="hint">※ HTTPS 必須（GitHub Pages は自動HTTPS）。Android Chrome 推奨。</p>
   </section>
 
   <section class="card">
@@ -48,8 +47,13 @@
       </label>
     </div>
     <div class="row">
-      <label>直進ゲート閾値: <b id="yawThreshVal">1.00</b>°
-        <input type="range" id="yawThresh" min="0.25" max="3" step="0.25" value="1.0" />
+      <label>直進ゲート(曲がり)上限: <b id="curveThreshVal">2.0</b>°
+        <input type="range" id="curveThresh" min="0.5" max="5" step="0.5" value="2.0" />
+      </label>
+    </div>
+    <div class="row">
+      <label>最小移動量: <b id="minDispVal">5</b> cm
+        <input type="range" id="minDisp" min="2" max="15" step="1" value="5" />
       </label>
     </div>
     <div class="row">
@@ -63,19 +67,25 @@
     <h2>3. 計測</h2>
     <div class="live">
       <div class="livebox"><span>キャンバー(静止)</span><b id="liveCamber">–</b></div>
-      <div class="livebox"><span>直近の広がり</span><b id="liveGate">–</b></div>
+      <div class="livebox"><span>移動量</span><b id="liveDisp">–</b></div>
+      <div class="livebox"><span>曲がり</span><b id="liveCurve">–</b></div>
       <div class="livebox"><span>phase</span><b id="phase">idle</b></div>
     </div>
     <div class="btnrow">
       <button id="staticBtn" class="btn" disabled>① 静止取得</button>
-      <button id="armBtn" class="btn primary" disabled>② 押して計測</button>
+    </div>
+    <div class="btnrow">
+      <button id="rollStartBtn" class="btn primary" disabled>② 押し開始</button>
+      <button id="rollStopBtn" class="btn" disabled>③ 停止＆判定</button>
     </div>
     <ol class="steps">
       <li>治具で端末をハブ中心に固定（背面＝ハブ面と平行）。</li>
-      <li>「静止取得」で重力・ジャイロバイアスを記録。</li>
-      <li>「押して計測」を押し、床ガイドに沿って<b>前後に短く強く</b>。2秒後に自動判定。</li>
+      <li><b>① 静止取得</b>で重力・ジャイロバイアス・静止キャンバーを記録。</li>
+      <li><b>② 押し開始</b>を押し、床ガイドに沿って<b>前後どちらかへゆっくり</b>数十cm転がす（急がなくてOK）。</li>
+      <li>止まったら <b>③ 停止＆判定</b>。スピン補正＋速度積分で自動算出。</li>
       <li>採用回数に達したら次の輪へ。4輪完了で派生量を自動表示。</li>
     </ol>
+    <p class="hint">前進して止める／前進して戻す、どちらでもOK（最遠点方向を進行方向として採用）。</p>
   </section>
 
   <section class="card">
@@ -93,14 +103,13 @@
   </section>
 
   <footer>
-    <p>並進基準法 PoC 雛形 / キャンバー・トー（相対）対応。キャスターは将来拡張。</p>
+    <p>並進基準法 v2 / キャンバー・トー（相対）。スピン補正・ZUPTで低速対応。キャスターは将来拡張。</p>
   </footer>
 
   <script src="./estimator.js"></script>
   <script src="./sensors.js"></script>
   <script src="./app.js"></script>
   <script>
-    // Service Worker 登録（相対パス = サブパス配信でも動く）
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js', { scope: './' })
