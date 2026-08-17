@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b7285" />
+  <title>ホイールアライメント計測（並進基準法）</title>
+  <!-- GitHub Pages サブパス配信のため、manifest/アイコンは相対パス -->
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header>
+    <h1>🛞 ホイールアライメント計測</h1>
+    <p class="sub">並進基準法 / 逐次1台方式（磁気不使用）</p>
+  </header>
+
+  <section class="card status-card">
+    <div id="status" class="status">初期化中…</div>
+    <div class="chips">
+      <span class="chip">mode: <b id="mode">-</b></span>
+      <span class="chip">実効: <b id="effhz">0 Hz</b></span>
+      <span class="chip">対象: <b id="wheel">-</b></span>
+      <span class="chip">採用: <b id="acceptCount">0/3</b></span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>1. 開始</h2>
+    <div class="btnrow">
+      <button id="permBtn" class="btn">権限</button>
+      <button id="startBtn" class="btn primary">センサ起動</button>
+    </div>
+    <p class="hint">※ HTTPS 必須（GitHub Pages は自動でHTTPS）。Android Chrome 推奨。</p>
+  </section>
+
+  <section class="card">
+    <h2>2. 対象輪と設定</h2>
+    <div class="row">
+      <label>対象輪
+        <select id="wheelSel">
+          <option value="FL">前左 FL</option>
+          <option value="FR">前右 FR</option>
+          <option value="RL">後左 RL</option>
+          <option value="RR">後右 RR</option>
+        </select>
+      </label>
+    </div>
+    <div class="row">
+      <label>直進ゲート閾値: <b id="yawThreshVal">1.00</b>°
+        <input type="range" id="yawThresh" min="0.25" max="3" step="0.25" value="1.0" />
+      </label>
+    </div>
+    <div class="row">
+      <label>採用回数: <b id="nAcceptVal">3</b>
+        <input type="range" id="nAccept" min="1" max="10" step="1" value="3" />
+      </label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>3. 計測</h2>
+    <div class="live">
+      <div class="livebox"><span>キャンバー(静止)</span><b id="liveCamber">–</b></div>
+      <div class="livebox"><span>直近の広がり</span><b id="liveGate">–</b></div>
+      <div class="livebox"><span>phase</span><b id="phase">idle</b></div>
+    </div>
+    <div class="btnrow">
+      <button id="staticBtn" class="btn" disabled>① 静止取得</button>
+      <button id="armBtn" class="btn primary" disabled>② 押して計測</button>
+    </div>
+    <ol class="steps">
+      <li>治具で端末をハブ中心に固定（背面＝ハブ面と平行）。</li>
+      <li>「静止取得」で重力・ジャイロバイアスを記録。</li>
+      <li>「押して計測」を押し、床ガイドに沿って<b>前後に短く強く</b>。2秒後に自動判定。</li>
+      <li>採用回数に達したら次の輪へ。4輪完了で派生量を自動表示。</li>
+    </ol>
+  </section>
+
+  <section class="card">
+    <h2>4. 結果</h2>
+    <div id="results"></div>
+    <div class="btnrow">
+      <button id="csvBtn" class="btn">CSVエクスポート</button>
+      <button id="resetBtn" class="btn ghost">リセット</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>ログ</h2>
+    <pre id="log" class="logbox"></pre>
+  </section>
+
+  <footer>
+    <p>並進基準法 PoC 雛形 / キャンバー・トー（相対）対応。キャスターは将来拡張。</p>
+  </footer>
+
+  <script src="./estimator.js"></script>
+  <script src="./sensors.js"></script>
+  <script src="./app.js"></script>
+  <script>
+    // Service Worker 登録（相対パス = サブパス配信でも動く）
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js', { scope: './' })
+          .then(r => console.log('SW registered', r.scope))
+          .catch(e => console.warn('SW register failed', e));
+      });
+    }
+  </script>
+</body>
+</html>
