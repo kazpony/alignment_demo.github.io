@@ -81,7 +81,15 @@
       el.calClearBtn.disabled=false;
       if(state.hub.hasMag) setStatus('起動OK。そのまま「2. 車両ゼロ」へ進めます（校正は任意）');
       else setStatus('⚠ 磁気非対応。chrome://flags の Experimental Web Platform features を有効化してください');
-    }catch(e){ setStatus('起動失敗: '+e.message); logLine('起動失敗 '+e.message); }
+    }catch(e){
+      // 起動に失敗してもUIは進められるようにする（ボタンが固まるのを防ぐ）
+      setStatus('起動でエラー: '+e.message+'（そのまま操作は可能）');
+      logLine('起動失敗 '+e.message);
+      el.startBtn.disabled=true;
+      el.vehBtn.disabled=false;
+      el.calBtn.disabled=false;
+      el.calClearBtn.disabled=false;
+    }
   }
 
   // ---- 8の字校正（任意）----

@@ -1,6 +1,8 @@
 /* Service Worker — GitHub Pages サブパス対応 / 更新確実反映
-   v5: 8の字校正を任意化。HTMLは network-first。 */
-const CACHE = 'align-pwa-v6';
+   v7: 【重要】HTML/JS/CSS を含む全アセットを network-first に統一。
+       これにより「新HTML × 古JS」のような版ずれを根絶する。
+       キャッシュはオフライン時のフォールバックとしてのみ使用。 */
+const CACHE = 'align-pwa-v7';
 const ASSETS = [
   './', './index.html', './styles.css',
   './estimator.js', './magnetics.js', './sensors.js', './app.js',
@@ -10,13 +12,15 @@ self.addEventListener('install', (e)=>{ e.waitUntil(caches.open(CACHE).then(c=>c
 self.addEventListener('activate', (e)=>{ e.waitUntil(
   caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())); });
 self.addEventListener('message', (e)=>{ if(e.data&&e.data.type==='SKIP_WAITING') self.skipWaiting(); });
+
 self.addEventListener('fetch', (e)=>{
   const req=e.request; if(req.method!=='GET') return;
-  const isHTML = req.mode==='navigate' || (req.headers.get('accept')||'').includes('text/html');
-  if(isHTML){
-    e.respondWith(fetch(req).then(res=>{ const c=res.clone(); caches.open(CACHE).then(x=>x.put(req,c)).catch(()=>{}); return res; })
-      .catch(()=>caches.match(req).then(c=>c||caches.match('./index.html'))));
-    return;
-  }
-  e.respondWith(caches.match(req).then(cached=>cached||fetch(req).then(res=>{ const c=res.clone(); caches.open(CACHE).then(x=>x.put(req,c)).catch(()=>{}); return res; }).catch(()=>cached)));
+  // 全て network-first: オンライン時は常に最新、失敗時のみキャッシュ
+  e.respondWith(
+    fetch(req).then(res=>{
+      const copy=res.clone();
+      caches.open(CACHE).then(c=>c.put(req,copy)).catch(()=>{});
+      return res;
+    }).catch(()=> caches.match(req).then(c=> c || (req.mode==='navigate' ? caches.match('./index.html') : undefined)))
+  );
 });
