@@ -4,15 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0b7285" />
-  <title>ホイールアライメント計測（並進基準法 v2）</title>
+  <title>静的磁気アライメント計測（絶対トー）</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <header>
-    <h1>🛞 ホイールアライメント計測</h1>
-    <p class="sub">並進基準法 v2 / 逐次1台・スピン補正・低速対応</p>
+    <h1>🧭 静的磁気アライメント</h1>
+    <p class="sub">絶対トー / 8の字校正・車両ゼロ・3点スライド分離</p>
   </header>
 
   <section class="card status-card">
@@ -20,7 +20,9 @@
     <div class="chips">
       <span class="chip">mode: <b id="mode">-</b></span>
       <span class="chip">実効: <b id="effhz">0 Hz</b></span>
+      <span class="chip">磁気: <b id="magok">-</b></span>
       <span class="chip">対象: <b id="wheel">-</b></span>
+      <span class="chip">水準: <b id="level">1/4</b></span>
       <span class="chip">採用: <b id="acceptCount">0/3</b></span>
     </div>
   </section>
@@ -31,69 +33,73 @@
       <button id="permBtn" class="btn">権限</button>
       <button id="startBtn" class="btn primary">センサ起動</button>
     </div>
-    <p class="hint">※ HTTPS 必須（GitHub Pages は自動HTTPS）。Android Chrome 推奨。</p>
+    <p class="hint">※ 磁気は <b>Android Chrome の Generic Sensor API</b> が必要（HTTPS必須）。iOS/一部端末は磁気非対応。</p>
   </section>
 
   <section class="card">
-    <h2>2. 対象輪と設定</h2>
+    <h2>2. 8の字校正（端末の鉄を除去）</h2>
+    <div class="btnrow">
+      <button id="calBtn" class="btn primary" disabled>8の字校正 開始</button>
+    </div>
+    <div class="calgrid">
+      <div><span>状態</span><b id="calState">未実施</b></div>
+      <div><span>網羅度</span><b id="calCoverage">–</b></div>
+      <div><span>残差</span><b id="calResidual">–</b></div>
+    </div>
+    <ol class="steps">
+      <li>治具から端末を外し、手に持つ。</li>
+      <li>「開始」後、端末を<b>あらゆる向きに ゆっくり8の字</b>で回す（画面が全方位を向くように）。</li>
+      <li>網羅度が高く・残差が小さいほど良好（残差&lt;3%・網羅&gt;50%目安）。</li>
+    </ol>
+  </section>
+
+  <section class="card">
+    <h2>3. 車両ゼロ基準（ドリンクホルダー壁）</h2>
+    <div class="btnrow">
+      <button id="vehBtn" class="btn primary" disabled>車両ゼロ 取得</button>
+    </div>
+    <div class="calgrid">
+      <div><span>車両方位</span><b id="vehAz">–</b></div>
+      <div><span>ライブ|B|</span><b id="liveMag">–</b></div>
+      <div><span>phase</span><b id="phase">idle</b></div>
+    </div>
+    <p class="hint">端末をドリンクホルダー壁（プロペラシャフト＝車両前後軸に平行）へ沿わせ、静止して取得。ここが全輪のゼロ基準になります。</p>
+  </section>
+
+  <section class="card">
+    <h2>4. 各輪 3点スライド計測</h2>
     <div class="row">
       <label>対象輪
         <select id="wheelSel">
-          <option value="FL">前左 FL</option>
-          <option value="FR">前右 FR</option>
-          <option value="RL">後左 RL</option>
-          <option value="RR">後右 RR</option>
+          <option value="FL">前左 FL</option><option value="FR">前右 FR</option>
+          <option value="RL">後左 RL</option><option value="RR">後右 RR</option>
         </select>
       </label>
     </div>
-    <div class="row">
-      <label>直進ゲート(曲がり)上限: <b id="curveThreshVal">2.0</b>°
-        <input type="range" id="curveThresh" min="0.5" max="5" step="0.5" value="2.0" />
-      </label>
-    </div>
-    <div class="row">
-      <label>最小移動量: <b id="minDispVal">5</b> cm
-        <input type="range" id="minDisp" min="2" max="15" step="1" value="5" />
-      </label>
-    </div>
-    <div class="row">
-      <label>採用回数: <b id="nAcceptVal">3</b>
-        <input type="range" id="nAccept" min="1" max="10" step="1" value="3" />
-      </label>
-    </div>
-  </section>
-
-  <section class="card">
-    <h2>3. 計測</h2>
     <div class="live">
       <div class="livebox"><span>キャンバー(静止)</span><b id="liveCamber">–</b></div>
-      <div class="livebox"><span>移動量</span><b id="liveDisp">–</b></div>
-      <div class="livebox"><span>曲がり</span><b id="liveCurve">–</b></div>
-      <div class="livebox"><span>phase</span><b id="phase">idle</b></div>
+      <div class="livebox"><span>スライド水準</span><b>ホイールから遠ざかる向き</b></div>
     </div>
     <div class="btnrow">
-      <button id="staticBtn" class="btn" disabled>① 静止取得</button>
+      <button id="slideBtn" class="btn primary" disabled>スライド計測（現水準）</button>
     </div>
     <div class="btnrow">
-      <button id="rollStartBtn" class="btn primary" disabled>② 押し開始</button>
-      <button id="rollStopBtn" class="btn" disabled>③ 停止＆判定</button>
+      <button id="resetWheelBtn" class="btn ghost">この輪をやり直し</button>
     </div>
     <ol class="steps">
       <li>治具で端末をハブ中心に固定（背面＝ハブ面と平行）。</li>
-      <li><b>① 静止取得</b>で重力・ジャイロバイアス・静止キャンバーを記録。</li>
-      <li><b>② 押し開始</b>を押し、床ガイドに沿って<b>前後どちらかへゆっくり</b>数十cm転がす（急がなくてOK）。</li>
-      <li>止まったら <b>③ 停止＆判定</b>。スピン補正＋速度積分で自動算出。</li>
-      <li>採用回数に達したら次の輪へ。4輪完了で派生量を自動表示。</li>
+      <li>スライド位置 <b id="offsets">0 / 10 / 20 / 30 cm</b> の順に、各位置で「スライド計測」を押し静止。</li>
+      <li>全水準そろうと局所鉄を分離し、絶対トーを1回採用。採用回数に達したら次の輪へ。</li>
     </ol>
-    <p class="hint">前進して止める／前進して戻す、どちらでもOK（最遠点方向を進行方向として採用）。</p>
+    <button id="nextLevelBtn" style="display:none"></button>
   </section>
 
   <section class="card">
-    <h2>4. 結果</h2>
+    <h2>5. 結果</h2>
     <div id="results"></div>
     <div class="btnrow">
       <button id="csvBtn" class="btn">CSVエクスポート</button>
-      <button id="resetBtn" class="btn ghost">リセット</button>
+      <button id="resetBtn" class="btn ghost">全リセット</button>
     </div>
   </section>
 
@@ -103,18 +109,24 @@
   </section>
 
   <footer>
-    <p>並進基準法 v2 / キャンバー・トー（相対）。スピン補正・ZUPTで低速対応。キャスターは将来拡張。</p>
+    <p>静的磁気・絶対トー / 3点スライドで局所鉄(ローター/ハブ)を分離。キャスターは将来拡張。</p>
   </footer>
 
   <script src="./estimator.js"></script>
+  <script src="./magnetics.js"></script>
   <script src="./sensors.js"></script>
   <script src="./app.js"></script>
   <script>
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js', { scope: './' })
-          .then(r => console.log('SW registered', r.scope))
-          .catch(e => console.warn('SW register failed', e));
+      let refreshing=false;
+      navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(refreshing)return; refreshing=true; location.reload(); });
+      window.addEventListener('load', async ()=>{
+        try{
+          const reg=await navigator.serviceWorker.register('./sw.js',{scope:'./',updateViaCache:'none'});
+          reg.update();
+          reg.addEventListener('updatefound',()=>{ const nw=reg.installing; if(!nw)return;
+            nw.addEventListener('statechange',()=>{ if(nw.state==='installed'&&navigator.serviceWorker.controller) nw.postMessage({type:'SKIP_WAITING'}); }); });
+        }catch(e){ console.warn('SW register failed',e); }
       });
     }
   </script>

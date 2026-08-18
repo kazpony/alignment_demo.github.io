@@ -1,7 +1,7 @@
 {
-  "name": "ホイールアライメント計測（並進基準法 v2）",
-  "short_name": "Alignment",
-  "description": "スマホIMUによる並進基準法アライメント計測（スピン補正・低速対応）",
+  "name": "静的磁気アライメント計測（絶対トー）",
+  "short_name": "MagAlign",
+  "description": "8の字校正・車両ゼロ・3点スライド分離による静的磁気アライメント計測",
   "lang": "ja",
   "start_url": "./",
   "scope": "./",
