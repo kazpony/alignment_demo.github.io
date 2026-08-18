@@ -29,7 +29,7 @@
     accelStatic: [0,0,9.81],
     slide: {}, camber:{}, accepted:{}, results:{}, rawlog:[],
     curWheel:'FL', curLevel:0,
-    phase:'idle', avgBuf:null, lastEffHz:0, hasMag:false,
+    phase:'idle', avgBuf:null, lastEffHz:0, hasMag:false, magSampleSeen:false,
   };
   WHEELS.forEach(w=>{ state.slide[w]=[]; state.camber[w]=[]; state.accepted[w]=[]; });
 
@@ -48,8 +48,9 @@
   function onSample(sample){
     state.lastEffHz=state.hub.effectiveHz;
     el.effhz.textContent=state.lastEffHz.toFixed(0)+' Hz';
+    if(sample.mag) state.magSampleSeen = true;
     state.hasMag = state.hub.hasMag && !!sample.mag;
-    el.magok.textContent = state.hub.hasMag ? (sample.mag?'OK':'待機') : '非対応';
+    el.magok.textContent = state.magSampleSeen ? 'OK' : (state.hub.magPresent ? '待機' : '非対応');
 
     el.liveCamber.textContent=E.camberStatic(sample.accel,[0,0,1]).toFixed(2)+'°';
     if(sample.mag) el.liveMag.textContent=V.norm(sample.mag).toFixed(1)+'µT';
@@ -66,7 +67,10 @@
     }
   }
 
-  async function requestPerm(){ const ok=await SensorHub.requestPermission(); logLine(ok?'権限OK':'権限拒否'); }
+  async function requestPerm(){
+    const ok=await SensorHub.requestPermission();
+    logLine((ok?'権限OK':'権限拒否')+' ['+(SensorHub.lastPermNotes||'')+']');
+  }
   async function startSensors(){
     try{
       const mode=await state.hub.start(onSample);
@@ -81,6 +85,16 @@
       el.calClearBtn.disabled=false;
       if(state.hub.hasMag) setStatus('起動OK。そのまま「2. 車両ゼロ」へ進めます（校正は任意）');
       else setStatus('⚠ 磁気非対応。chrome://flags の Experimental Web Platform features を有効化してください');
+      // 起動1.2秒後に磁気readingが来ているか診断ログ
+      setTimeout(()=>{
+        const hub=state.hub;
+        logLine(`磁気診断: present=${hub.magPresent} reading=${!!state.magSampleSeen} error=${hub.magError||'なし'}`);
+        if(!state.magSampleSeen){
+          if(hub.magError==='no-Magnetometer-class') setStatus('⚠ Magnetometer未有効: chrome://flags→Experimental Web Platform features→Enabled→再起動');
+          else if(hub.magError) setStatus('⚠ 磁気エラー('+hub.magError+')。権限/センサを確認してください');
+          else setStatus('磁気の値待ち… 端末を軽く動かすと出ることがあります');
+        }
+      }, 1200);
     }catch(e){
       // 起動に失敗してもUIは進められるようにする（ボタンが固まるのを防ぐ）
       setStatus('起動でエラー: '+e.message+'（そのまま操作は可能）');
@@ -130,8 +144,15 @@
   }
 
   function takeVehicle(){
-    if(!state.hasMag){ setStatus('磁気が読めていません'); return; }
-    if(state.phase==='cal'){ setStatus('校正の完了を待つか、校正をクリアしてから実行してください'); return; }
+    logLine(`車両ゼロ押下: hasMag=${state.hasMag} magSeen=${!!state.magSampleSeen} phase=${state.phase} err=${state.hub.magError||'なし'}`);
+    if(state.phase==='cal'){ setStatus('校正中です。完了を待つかクリアしてから実行してください'); return; }
+    if(!state.hasMag){
+      const why = state.hub.magError==='no-Magnetometer-class'
+        ? '磁気センサが無効。chrome://flags→Experimental Web Platform features→Enabled→Chrome再起動'
+        : (state.hub.magError ? '磁気エラー('+state.hub.magError+')。権限/センサを確認' : '磁気の値がまだ来ていません。端末を少し動かし数秒待って再度どうぞ');
+      setStatus('⚠ '+why);
+      return;
+    }
     state.phase='veh'; beginAvg();
     setStatus('車両ゼロ取得中… ドリンクホルダー壁に沿わせて静止');
     el.phase.textContent='車両基準';

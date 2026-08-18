@@ -7,13 +7,25 @@
   class SensorHub {
     constructor(){ this.running=false; this.mode=null; this._cb=null; this._sensors=[];
       this._last={accel:null,gyro:[0,0,0],mag:null}; this._count=0; this._t0=0;
-      this._gravityLP=[0,0,9.81]; this.effectiveHz=0; this.hasMag=false; }
+      this._gravityLP=[0,0,9.81]; this.effectiveHz=0;
+      this.hasMag=false; this.magPresent=false; this.magError=null; }
     static async requestPermission(){
-      let ok=true;
+      let ok=true, notes=[];
+      // iOS系のモーション権限
       try{
         if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function') ok=(await DeviceMotionEvent.requestPermission())==='granted';
         if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function') await DeviceOrientationEvent.requestPermission();
+      }catch(e){ notes.push('motion:'+(e&&e.name)); }
+      // Generic Sensorの権限状態を確認（Permissions API）
+      try{
+        if(navigator.permissions&&navigator.permissions.query){
+          for(const name of ['accelerometer','gyroscope','magnetometer']){
+            try{ const st=await navigator.permissions.query({name}); notes.push(name+':'+st.state); }
+            catch(e){ notes.push(name+':query-unsupported'); }
+          }
+        }
       }catch(e){}
+      SensorHub.lastPermNotes = notes.join(' | ');
       return ok;
     }
     async start(cb){
@@ -31,10 +43,18 @@
       this._sensors=[accel,gyro];
       if('Magnetometer' in global){
         try{ const mag=new global.Magnetometer(opts);
-          mag.addEventListener('reading',()=>{ this._last.mag=[mag.x,mag.y,mag.z]; });
-          mag.addEventListener('error',e=>console.warn('mag',e.error&&e.error.name));
-          mag.start(); this._sensors.push(mag); this.hasMag=true;
-        }catch(e){ console.warn('Magnetometer利用不可',e); }
+          mag.addEventListener('reading',()=>{ this._last.mag=[mag.x,mag.y,mag.z]; this.magError=null; });
+          mag.addEventListener('error',e=>{
+            const name=(e.error&&e.error.name)||'unknown';
+            this.magError=name; console.warn('mag error',name);
+          });
+          mag.start();
+          this._sensors.push(mag);
+          this.magPresent=true;   // Magnetometerオブジェクトは生成できた
+          this.hasMag=true;       // readingが来れば onSample側で最終確定
+        }catch(e){ this.magError=(e&&e.name)||'construct-failed'; console.warn('Magnetometer利用不可',e); }
+      } else {
+        this.magError='no-Magnetometer-class';  // フラグ未有効 or 非対応
       }
       for(const s of [accel,gyro]){ s.addEventListener('error',ev=>console.warn('sensor error',ev.error&&ev.error.name)); s.start(); }
     }

@@ -2,7 +2,7 @@
    v7: 【重要】HTML/JS/CSS を含む全アセットを network-first に統一。
        これにより「新HTML × 古JS」のような版ずれを根絶する。
        キャッシュはオフライン時のフォールバックとしてのみ使用。 */
-const CACHE = 'align-pwa-v7';
+const CACHE = 'align-pwa-v8';
 const ASSETS = [
   './', './index.html', './styles.css',
   './estimator.js', './magnetics.js', './sensors.js', './app.js',
