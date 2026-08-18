@@ -1,46 +1,35 @@
-:root{
-  --bg:#0f1419; --card:#1a2129; --ink:#e8eef2; --sub:#93a1ad;
-  --acc:#22b8cf; --acc2:#0b7285; --ok:#37b24d; --warn:#f08c00; --err:#e03131; --line:#2a333d;
-}
-*{box-sizing:border-box}
-html,body{margin:0;padding:0}
+:root{ --bg:#0f1419; --card:#1a2129; --ink:#e8eef2; --sub:#93a1ad;
+  --acc:#22b8cf; --acc2:#0b7285; --ok:#37b24d; --warn:#f08c00; --err:#e03131; --line:#2a333d; }
+*{box-sizing:border-box} html,body{margin:0;padding:0}
 body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif;
-  background:var(--bg); color:var(--ink); line-height:1.5;
-  padding:env(safe-area-inset-top) 12px 40px; max-width:720px; margin:0 auto;}
-header{padding:16px 4px 6px}
-header h1{font-size:1.3rem; margin:0}
+  background:var(--bg); color:var(--ink); line-height:1.5; padding:env(safe-area-inset-top) 12px 40px; max-width:720px; margin:0 auto;}
+header{padding:16px 4px 6px} header h1{font-size:1.3rem; margin:0}
 header .sub{color:var(--sub); margin:2px 0 0; font-size:.85rem}
 .card{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin:12px 0}
 .card h2{font-size:1rem; margin:0 0 10px; color:var(--acc)}
-.status-card{position:sticky; top:6px; z-index:5}
-.status{font-weight:600}
+.tag{display:inline-block; font-size:.68rem; font-weight:700; color:#00252b; background:var(--warn); border-radius:6px; padding:1px 7px; margin-left:6px; vertical-align:middle}
+.status-card{position:sticky; top:6px; z-index:5} .status{font-weight:600}
 .chips{display:flex; flex-wrap:wrap; gap:6px; margin-top:8px}
 .chip{background:#12181e; border:1px solid var(--line); border-radius:999px; padding:3px 10px; font-size:.78rem; color:var(--sub)}
 .chip b{color:var(--ink)}
 .btnrow{display:flex; gap:8px; flex-wrap:wrap; margin:8px 0}
 .btn{flex:1 1 auto; min-width:120px; padding:12px 14px; border-radius:10px; border:1px solid var(--line); background:#141b22; color:var(--ink); font-size:1rem; font-weight:600; cursor:pointer}
-.btn:active{transform:translateY(1px)}
-.btn[disabled]{opacity:.45; cursor:not-allowed}
+.btn:active{transform:translateY(1px)} .btn[disabled]{opacity:.45; cursor:not-allowed}
 .btn.primary{background:linear-gradient(180deg,var(--acc),var(--acc2)); border:none; color:#00252b}
 .btn.ghost{background:transparent}
-.hint{color:var(--sub); font-size:.8rem; margin:6px 0 0}
-.row{margin:10px 0}
-.row label{display:block; font-size:.9rem; color:var(--sub)}
+.hint{color:var(--sub); font-size:.8rem; margin:6px 0 0} .hint b{color:var(--ink)}
+.row{margin:10px 0} .row label{display:block; font-size:.9rem; color:var(--sub)}
 select{width:100%; margin-top:6px; padding:10px; background:#12181e; color:var(--ink); border:1px solid var(--line); border-radius:8px}
 .calgrid,.live{display:flex; gap:8px; margin:8px 0}
 .calgrid>div,.livebox{flex:1; background:#12181e; border:1px solid var(--line); border-radius:10px; padding:10px; text-align:center}
 .calgrid span,.livebox span{display:block; font-size:.72rem; color:var(--sub)}
-.calgrid b,.livebox b{font-size:1.15rem}
-.livebox b{font-size:1rem}
-.steps{color:var(--sub); font-size:.86rem; padding-left:18px; margin:8px 0 0}
-.steps b{color:var(--ink)}
+.calgrid b,.livebox b{font-size:1.15rem} .livebox b{font-size:1rem}
+.steps{color:var(--sub); font-size:.86rem; padding-left:18px; margin:8px 0 0} .steps b{color:var(--ink)}
 table{width:100%; border-collapse:collapse; font-size:.9rem}
 th,td{padding:8px 6px; text-align:center; border-bottom:1px solid var(--line)}
-th{color:var(--sub); font-weight:600}
-tr.pending td{color:#4b5763}
+th{color:var(--sub); font-weight:600} tr.pending td{color:#4b5763}
 .derived{margin-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:8px}
 .derived>div{background:#12181e; border:1px solid var(--line); border-radius:10px; padding:8px 10px}
-.derived span{display:block; font-size:.72rem; color:var(--sub)}
-.derived b{font-size:1.1rem}
+.derived span{display:block; font-size:.72rem; color:var(--sub)} .derived b{font-size:1.1rem}
 .logbox{background:#0a0e12; border:1px solid var(--line); border-radius:8px; padding:10px; max-height:180px; overflow:auto; font-size:.75rem; white-space:pre-wrap; color:#9fb3c0}
 footer{color:var(--sub); font-size:.78rem; text-align:center; padding:14px 4px}

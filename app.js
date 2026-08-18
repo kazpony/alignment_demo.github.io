@@ -1,5 +1,7 @@
 /* =====================================================================
- * app.js  —  静的磁気・絶対トー計測（8の字校正 / 車両ゼロ / 3点スライド）
+ * app.js  —  静的磁気・絶対トー計測
+ *   変更: 8の字校正を「任意」に。未校正でも車両ゼロ→各輪計測へ進める。
+ *         （トー=輪方位−車両方位の差分でハードアイアンが相殺するため）
  *   依存: estimator.js, sensors.js, magnetics.js
  * ===================================================================== */
 (function () {
@@ -12,20 +14,19 @@
   const WLAB = { FL:'前左 FL', FR:'前右 FR', RL:'後左 RL', RR:'後右 RR' };
 
   const cfg = {
-    slideOffsets: [0,10,20,30],  // ホイールから遠ざかる向きのオフセット[cm]
-    avgMs: 1500,                 // 各点の静止平均時間
-    nAccept: 3,                  // 各輪の採用回数
-    calMs: 12000,                // 8の字校正の収集時間
-    dirAxis: [1,0,0],            // 端末forward基準軸（治具に合わせ調整可）
+    slideOffsets: [0,10,20,30],
+    avgMs: 1500,
+    nAccept: 3,
+    calMs: 12000,
+    dirAxis: [1,0,0],
   };
 
   const state = {
     hub: new SensorHub(),
-    cal: null,                   // ハードアイアン校正
+    cal: null,            // 任意。null=未校正でも可
     calBuf: [],
-    vehicleAz: null,             // 車両ゼロ方位[deg]
+    vehicleAz: null,
     accelStatic: [0,0,9.81],
-    // 各輪: slideReads[level] = 平均磁気, camber蓄積, toe採用
     slide: {}, camber:{}, accepted:{}, results:{}, rawlog:[],
     curWheel:'FL', curLevel:0,
     phase:'idle', avgBuf:null, lastEffHz:0, hasMag:false,
@@ -36,7 +37,7 @@
   const el={};
   ['status','mode','effhz','magok','wheel','level','phase','liveCamber','liveMag',
    'calState','calCoverage','calResidual','vehAz','acceptCount',
-   'permBtn','startBtn','calBtn','vehBtn','slideBtn','nextLevelBtn','resetWheelBtn',
+   'permBtn','startBtn','calBtn','calSkipBtn','vehBtn','slideBtn','resetWheelBtn',
    'wheelSel','csvBtn','resetBtn','results','log','offsets']
    .forEach(id=>el[id]=$(id));
 
@@ -44,27 +45,20 @@
   const setStatus=s=>{ el.status.textContent=s; };
   const f=x=>Math.round(x*1000)/1000;
 
-  // ---- センサ ----
   function onSample(sample){
     state.lastEffHz=state.hub.effectiveHz;
     el.effhz.textContent=state.lastEffHz.toFixed(0)+' Hz';
     state.hasMag = state.hub.hasMag && !!sample.mag;
     el.magok.textContent = state.hub.hasMag ? (sample.mag?'OK':'待機') : '非対応';
 
-    // ライブ表示
     el.liveCamber.textContent=E.camberStatic(sample.accel,[0,0,1]).toFixed(2)+'°';
     if(sample.mag) el.liveMag.textContent=V.norm(sample.mag).toFixed(1)+'µT';
 
-    // 校正収集
     if(state.phase==='cal' && sample.mag){ state.calBuf.push(sample.mag.slice()); }
-
-    // 静止平均収集（車両ゼロ / スライド各点）
     if((state.phase==='veh'||state.phase==='slide') && state.avgBuf){
       state.avgBuf.accel.push(sample.accel.slice());
       if(sample.mag) state.avgBuf.mag.push(sample.mag.slice());
     }
-
-    // rawlog（校正/計測フェーズのみ）
     if(state.phase!=='idle' && sample.mag){
       state.rawlog.push({ t_ms:Math.round(sample.t_ms), phase:state.phase, wheel:state.curWheel, level:state.curLevel,
         ax:f(sample.accel[0]),ay:f(sample.accel[1]),az:f(sample.accel[2]),
@@ -77,37 +71,47 @@
     try{
       const mode=await state.hub.start(onSample);
       el.mode.textContent=mode;
-      setStatus('センサ起動: '+mode+(state.hub.hasMag?'（磁気OK）':'（磁気非対応:Chrome必須）'));
+      setStatus('センサ起動: '+mode+(state.hub.hasMag?'（磁気OK）':'（磁気非対応）'));
       logLine('起動 mode='+mode+' mag='+state.hub.hasMag);
-      el.startBtn.disabled=true; el.calBtn.disabled=false;
-      if(!state.hub.hasMag) setStatus('⚠ この端末/ブラウザは磁気センサ非対応。Android Chromeでお試しください');
+      el.startBtn.disabled=true;
+      // 校正は任意 → 校正ボタンとスキップ(=車両ゼロへ)の両方を解放
+      el.calBtn.disabled=false;
+      el.calSkipBtn.disabled=false;
+      el.vehBtn.disabled=false;   // 未校正でも車両ゼロへ進める
+      if(!state.hub.hasMag) setStatus('⚠ 磁気非対応。chrome://flags の Experimental Web Platform features を有効化してください');
     }catch(e){ setStatus('起動失敗: '+e.message); logLine('起動失敗 '+e.message); }
   }
 
-  // ---- 8の字校正 ----
+  // ---- 8の字校正（任意）----
   function startCal(){
+    if(!state.hasMag){ setStatus('磁気が読めていません（校正は任意なのでスキップ可）'); return; }
     state.phase='cal'; state.calBuf=[];
-    el.calState.textContent='収集中…（8の字にゆっくり回す）';
-    setStatus('8の字校正: 端末をあらゆる向きへ ゆっくり回す（約'+(cfg.calMs/1000)+'秒）');
+    el.calState.textContent='収集中…';
+    setStatus('8の字校正(任意): 端末をあらゆる向きへ ゆっくり回す（約'+(cfg.calMs/1000)+'秒）');
     el.phase.textContent='校正中';
     let left=cfg.calMs/1000;
     const iv=setInterval(()=>{ left--; el.calState.textContent=`収集中… 残り${left}s (${state.calBuf.length}点)`; if(left<=0)clearInterval(iv); },1000);
     setTimeout(()=>{
       state.phase='idle';
       const cal=Mag.hardIronFit(state.calBuf);
-      if(!cal){ el.calState.textContent='失敗（点数不足）'; setStatus('校正失敗: もう一度'); return; }
+      if(!cal){ el.calState.textContent='点数不足→スキップ推奨'; setStatus('校正失敗。任意なのでこのまま車両ゼロへ進めます'); return; }
       state.cal=cal;
       el.calState.textContent='完了 ✓';
       el.calCoverage.textContent=(cal.coverage*100).toFixed(0)+'%';
       el.calResidual.textContent=cal.residualPct.toFixed(1)+'%';
-      const quality = cal.residualPct<3 && cal.coverage>0.5 ? '良好' : (cal.residualPct<6?'可':'要再校正');
-      setStatus(`校正完了 残差${cal.residualPct.toFixed(1)}% 網羅${(cal.coverage*100).toFixed(0)}% → ${quality}`);
-      logLine(`校正 offset=[${cal.offset.map(x=>x.toFixed(1))}] R=${cal.radius.toFixed(1)} res=${cal.residualPct.toFixed(1)}% cov=${(cal.coverage*100).toFixed(0)}%`);
-      el.vehBtn.disabled=false;
+      const q = cal.residualPct<3 && cal.coverage>0.5 ? '良好' : (cal.residualPct<8?'可(このまま使用可)':'粗い→スキップ推奨');
+      setStatus(`校正完了 残差${cal.residualPct.toFixed(1)}% 網羅${(cal.coverage*100).toFixed(0)}% → ${q}`);
+      logLine(`校正 offset=[${cal.offset.map(x=>x.toFixed(1))}] res=${cal.residualPct.toFixed(1)}% cov=${(cal.coverage*100).toFixed(0)}%`);
     }, cfg.calMs);
   }
+  function skipCal(){
+    state.cal=null;
+    el.calState.textContent='スキップ（未校正）';
+    el.calCoverage.textContent='–'; el.calResidual.textContent='–';
+    setStatus('校正スキップ。差分構造でハードアイアンは相殺されます → 車両ゼロへ');
+    logLine('校正スキップ（未校正で継続）');
+  }
 
-  // ---- 静止平均ヘルパ ----
   function beginAvg(){ state.avgBuf={accel:[],mag:[]}; }
   function endAvg(){
     const a=state.avgBuf.accel.length?V.mean(state.avgBuf.accel):[0,0,9.81];
@@ -115,9 +119,7 @@
     state.avgBuf=null; return {accel:a, mag:m};
   }
 
-  // ---- 車両ゼロ基準（ドリンクホルダー壁）----
   function takeVehicle(){
-    if(!state.cal){ setStatus('先に8の字校正を'); return; }
     if(!state.hasMag){ setStatus('磁気が読めていません'); return; }
     state.phase='veh'; beginAvg();
     setStatus('車両ゼロ取得中… ドリンクホルダー壁に沿わせて静止');
@@ -126,17 +128,16 @@
       const r=endAvg(); state.phase='idle';
       if(!r.mag){ setStatus('磁気取得失敗'); return; }
       const up=V.unit(r.accel);
-      const Eclean=Mag.applyHardIron(r.mag, state.cal);
+      const Eclean=Mag.applyHardIron(r.mag, state.cal); // cal=nullなら生値
       state.vehicleAz=Mag.magneticHeading(Eclean, up, cfg.dirAxis);
       state.accelStatic=r.accel;
       el.vehAz.textContent=state.vehicleAz.toFixed(2)+'°';
-      setStatus(`車両ゼロ=${state.vehicleAz.toFixed(2)}°。各輪の計測へ`);
-      logLine(`車両ゼロ az=${state.vehicleAz.toFixed(2)}° |B|=${V.norm(Eclean).toFixed(1)}µT`);
+      setStatus(`車両ゼロ=${state.vehicleAz.toFixed(2)}°${state.cal?'':'(未校正)'}。各輪の計測へ`);
+      logLine(`車両ゼロ az=${state.vehicleAz.toFixed(2)}° cal=${state.cal?'あり':'なし'}`);
       el.slideBtn.disabled=false;
     }, cfg.avgMs);
   }
 
-  // ---- 各輪 3点スライド ----
   function measureSlide(){
     if(state.vehicleAz==null){ setStatus('先に車両ゼロ基準を'); return; }
     if(!state.hasMag){ setStatus('磁気が読めていません'); return; }
@@ -148,22 +149,16 @@
       const r=endAvg(); state.phase='idle';
       if(!r.mag){ setStatus('磁気取得失敗、やり直し'); return; }
       const mClean=Mag.applyHardIron(r.mag, state.cal);
-      // 水準データ格納
       state.slide[state.curWheel][state.curLevel]={ mag:mClean, accel:r.accel };
-      // キャンバーは全水準で取れるので蓄積（同等のはず）
       state.camber[state.curWheel].push(E.camberStatic(r.accel,[0,0,1]));
       logLine(`[${state.curWheel}] L${state.curLevel+1}(${off}cm) |B|=${V.norm(mClean).toFixed(1)}µT`);
-
       if(state.curLevel < cfg.slideOffsets.length-1){
         state.curLevel++;
         el.level.textContent=`${state.curLevel+1}/${cfg.slideOffsets.length}`;
         setStatus(`水準${state.curLevel+1}へ: 端末を ${cfg.slideOffsets[state.curLevel]}cm 位置へスライドし「スライド計測」`);
-        el.nextLevelBtn.disabled=true; // 同ボタン再利用
       } else {
-        // 全水準完了 → 分離してトー算出（1採用）
         finalizeOneToe();
-        state.curLevel=0;
-        el.level.textContent=`1/${cfg.slideOffsets.length}`;
+        state.curLevel=0; el.level.textContent=`1/${cfg.slideOffsets.length}`;
       }
     }, cfg.avgMs);
   }
@@ -176,7 +171,6 @@
     const az=Mag.magneticHeading(sep.E, up, cfg.dirAxis);
     const toe=Mag.toeFromHeadings(az, state.vehicleAz);
     state.accepted[state.curWheel].push(toe);
-    // 次の採用に備えスライド配列クリア
     state.slide[state.curWheel]=[];
     el.acceptCount.textContent=`${state.accepted[state.curWheel].length}/${cfg.nAccept}`;
     logLine(`[${state.curWheel}] トー採用=${toe.toFixed(3)}° (r_b=${sep.r_b_cm.toFixed(1)}cm res=${sep.residual.toFixed(2)}µT)`);
@@ -199,8 +193,7 @@
     let h='<table><thead><tr><th>輪</th><th>キャンバー</th><th>トー(絶対)</th><th>1σ</th><th>n</th></tr></thead><tbody>';
     for(const w of WHEELS){ const r=state.results[w];
       h += r ? `<tr><td>${WLAB[w]}</td><td>${r.camber_deg.toFixed(2)}°</td><td>${r.toe_deg.toFixed(2)}°</td><td>±${r.toe_sd.toFixed(2)}</td><td>${r.n_accepted}</td></tr>`
-             : `<tr class="pending"><td>${WLAB[w]}</td><td>—</td><td>—</td><td>—</td><td>0</td></tr>`;
-    }
+             : `<tr class="pending"><td>${WLAB[w]}</td><td>—</td><td>—</td><td>—</td><td>0</td></tr>`; }
     h+='</tbody></table>';
     if(WHEELS.every(w=>state.results[w])){
       const toes={}; WHEELS.forEach(w=>toes[w]=state.results[w].toe_deg);
@@ -215,7 +208,6 @@
     el.results.innerHTML=h;
   }
 
-  // ---- CSV ----
   function exportCSV(){
     const resRows=WHEELS.filter(w=>state.results[w]).map(w=>state.results[w]);
     let derivedRow={};
@@ -224,8 +216,7 @@
     const rawCSV=E.toCSV(state.rawlog,['t_ms','phase','wheel','level','ax','ay','az','mx','my','mz']);
     const meta=[
       '# static-magnetic absolute toe  '+new Date().toISOString(),
-      '# hardIron offset='+(state.cal?JSON.stringify(state.cal.offset.map(x=>+x.toFixed(2))):'none')
-        +' residualPct='+(state.cal?state.cal.residualPct.toFixed(2):'-'),
+      '# calibration='+(state.cal?('offset='+JSON.stringify(state.cal.offset.map(x=>+x.toFixed(2)))+' res='+state.cal.residualPct.toFixed(2)+'%'):'none(uncalibrated)'),
       '# vehicleAz='+(state.vehicleAz!=null?state.vehicleAz.toFixed(3):'-')
         +' slideOffsets='+JSON.stringify(cfg.slideOffsets)+' nAccept='+cfg.nAccept,
       '# derived: '+JSON.stringify(derivedRow),
@@ -252,11 +243,11 @@
     renderResults(); setStatus('全リセット'); logLine('全リセット');
   }
 
-  // ---- 配線 ----
   function bind(){
     el.permBtn.onclick=requestPerm;
     el.startBtn.onclick=startSensors;
     el.calBtn.onclick=startCal;
+    el.calSkipBtn.onclick=skipCal;
     el.vehBtn.onclick=takeVehicle;
     el.slideBtn.onclick=measureSlide;
     el.resetWheelBtn.onclick=resetWheel;

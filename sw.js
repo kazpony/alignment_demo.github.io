@@ -1,6 +1,6 @@
 /* Service Worker — GitHub Pages サブパス対応 / 更新確実反映
-   v4: 静的磁気モード（magnetics.js 追加）。HTMLは network-first。 */
-const CACHE = 'align-pwa-v4';
+   v5: 8の字校正を任意化。HTMLは network-first。 */
+const CACHE = 'align-pwa-v5';
 const ASSETS = [
   './', './index.html', './styles.css',
   './estimator.js', './magnetics.js', './sensors.js', './app.js',
