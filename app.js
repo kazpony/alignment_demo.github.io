@@ -37,7 +37,7 @@
   const el={};
   ['status','mode','effhz','magok','wheel','level','phase','liveCamber','liveMag',
    'calState','calCoverage','calResidual','vehAz','acceptCount',
-   'permBtn','startBtn','calBtn','calSkipBtn','vehBtn','slideBtn','resetWheelBtn',
+   'permBtn','startBtn','calBtn','calClearBtn','vehBtn','slideBtn','resetWheelBtn',
    'wheelSel','csvBtn','resetBtn','results','log','offsets']
    .forEach(id=>el[id]=$(id));
 
@@ -74,11 +74,13 @@
       setStatus('センサ起動: '+mode+(state.hub.hasMag?'（磁気OK）':'（磁気非対応）'));
       logLine('起動 mode='+mode+' mag='+state.hub.hasMag);
       el.startBtn.disabled=true;
-      // 校正は任意 → 校正ボタンとスキップ(=車両ゼロへ)の両方を解放
+      // メインフローは校正を一切待たない：車両ゼロを即解放
+      el.vehBtn.disabled=false;
+      // 校正は完全に任意（オプション）。実行/クリアはいつでも可能
       el.calBtn.disabled=false;
-      el.calSkipBtn.disabled=false;
-      el.vehBtn.disabled=false;   // 未校正でも車両ゼロへ進める
-      if(!state.hub.hasMag) setStatus('⚠ 磁気非対応。chrome://flags の Experimental Web Platform features を有効化してください');
+      el.calClearBtn.disabled=false;
+      if(state.hub.hasMag) setStatus('起動OK。そのまま「2. 車両ゼロ」へ進めます（校正は任意）');
+      else setStatus('⚠ 磁気非対応。chrome://flags の Experimental Web Platform features を有効化してください');
     }catch(e){ setStatus('起動失敗: '+e.message); logLine('起動失敗 '+e.message); }
   }
 
@@ -104,12 +106,12 @@
       logLine(`校正 offset=[${cal.offset.map(x=>x.toFixed(1))}] res=${cal.residualPct.toFixed(1)}% cov=${(cal.coverage*100).toFixed(0)}%`);
     }, cfg.calMs);
   }
-  function skipCal(){
+  function clearCal(){
     state.cal=null;
-    el.calState.textContent='スキップ（未校正）';
+    el.calState.textContent='未校正';
     el.calCoverage.textContent='–'; el.calResidual.textContent='–';
-    setStatus('校正スキップ。差分構造でハードアイアンは相殺されます → 車両ゼロへ');
-    logLine('校正スキップ（未校正で継続）');
+    setStatus('校正をクリアしました（未校正で計測します）');
+    logLine('校正クリア（未校正）');
   }
 
   function beginAvg(){ state.avgBuf={accel:[],mag:[]}; }
@@ -121,6 +123,7 @@
 
   function takeVehicle(){
     if(!state.hasMag){ setStatus('磁気が読めていません'); return; }
+    if(state.phase==='cal'){ setStatus('校正の完了を待つか、校正をクリアしてから実行してください'); return; }
     state.phase='veh'; beginAvg();
     setStatus('車両ゼロ取得中… ドリンクホルダー壁に沿わせて静止');
     el.phase.textContent='車両基準';
@@ -141,6 +144,7 @@
   function measureSlide(){
     if(state.vehicleAz==null){ setStatus('先に車両ゼロ基準を'); return; }
     if(!state.hasMag){ setStatus('磁気が読めていません'); return; }
+    if(state.phase==='cal'){ setStatus('校正中です。完了を待つかクリアしてください'); return; }
     state.phase='slide'; beginAvg();
     const off=cfg.slideOffsets[state.curLevel];
     setStatus(`[${WLAB[state.curWheel]}] 水準${state.curLevel+1}/${cfg.slideOffsets.length} (${off}cm) 静止…`);
@@ -247,7 +251,7 @@
     el.permBtn.onclick=requestPerm;
     el.startBtn.onclick=startSensors;
     el.calBtn.onclick=startCal;
-    el.calSkipBtn.onclick=skipCal;
+    el.calClearBtn.onclick=clearCal;
     el.vehBtn.onclick=takeVehicle;
     el.slideBtn.onclick=measureSlide;
     el.resetWheelBtn.onclick=resetWheel;

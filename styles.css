@@ -33,3 +33,5 @@ th{color:var(--sub); font-weight:600} tr.pending td{color:#4b5763}
 .derived span{display:block; font-size:.72rem; color:var(--sub)} .derived b{font-size:1.1rem}
 .logbox{background:#0a0e12; border:1px solid var(--line); border-radius:8px; padding:10px; max-height:180px; overflow:auto; font-size:.75rem; white-space:pre-wrap; color:#9fb3c0}
 footer{color:var(--sub); font-size:.78rem; text-align:center; padding:14px 4px}
+.card.optional{opacity:.92; border-style:dashed}
+.card.optional h2{color:var(--sub)}

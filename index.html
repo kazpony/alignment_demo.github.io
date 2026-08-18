@@ -34,24 +34,11 @@
       <button id="startBtn" class="btn primary">センサ起動</button>
     </div>
     <p class="hint">※ 磁気は Android Chrome で <b>chrome://flags → Experimental Web Platform features → Enabled</b> が必要（HTTPS必須）。</p>
+    <p class="hint">起動後は<b>そのまま「2. 車両ゼロ」へ進めます</b>。8の字校正は任意（最下部）。</p>
   </section>
 
   <section class="card">
-    <h2>2. 8の字校正 <span class="tag">任意</span></h2>
-    <div class="btnrow">
-      <button id="calBtn" class="btn" disabled>8の字校正 実行</button>
-      <button id="calSkipBtn" class="btn ghost" disabled>スキップして進む</button>
-    </div>
-    <div class="calgrid">
-      <div><span>状態</span><b id="calState">未実施</b></div>
-      <div><span>網羅度</span><b id="calCoverage">–</b></div>
-      <div><span>残差</span><b id="calResidual">–</b></div>
-    </div>
-    <p class="hint"><b>校正はしなくてOK</b>：トー＝(輪方位)−(車両方位) の差分計算で、端末固有の磁気オフセットは相殺されます。うまく校正できないときは「スキップして進む」で問題ありません。</p>
-  </section>
-
-  <section class="card">
-    <h2>3. 車両ゼロ基準（ドリンクホルダー壁）</h2>
+    <h2>2. 車両ゼロ基準（ドリンクホルダー壁）</h2>
     <div class="btnrow">
       <button id="vehBtn" class="btn primary" disabled>車両ゼロ 取得</button>
     </div>
@@ -64,7 +51,7 @@
   </section>
 
   <section class="card">
-    <h2>4. 各輪 3点スライド計測</h2>
+    <h2>3. 各輪 3点スライド計測</h2>
     <div class="row">
       <label>対象輪
         <select id="wheelSel">
@@ -91,12 +78,29 @@
   </section>
 
   <section class="card">
-    <h2>5. 結果</h2>
+    <h2>4. 結果</h2>
     <div id="results"></div>
     <div class="btnrow">
       <button id="csvBtn" class="btn">CSVエクスポート</button>
       <button id="resetBtn" class="btn ghost">全リセット</button>
     </div>
+  </section>
+
+  <section class="card optional">
+    <h2>（任意）8の字校正 <span class="tag">オプション</span></h2>
+    <p class="hint" style="margin-top:0">
+      <b>実行しなくて構いません。</b> トー＝(輪方位)−(車両方位) の差分計算で、端末固有の磁気オフセットは自動的に相殺されます（検証済み: 校正なしでも同等精度）。磁気の癖が気になる時だけ、下のボタンで任意に実行してください。
+    </p>
+    <div class="btnrow">
+      <button id="calBtn" class="btn" disabled>8の字校正 実行（任意）</button>
+      <button id="calClearBtn" class="btn ghost" disabled>校正をクリア（未校正に戻す）</button>
+    </div>
+    <div class="calgrid">
+      <div><span>状態</span><b id="calState">未実施（任意）</b></div>
+      <div><span>網羅度</span><b id="calCoverage">–</b></div>
+      <div><span>残差</span><b id="calResidual">–</b></div>
+    </div>
+    <p class="hint">校正の有無は計測結果とCSVに記録されます。いつでも実行/クリアでき、実行中でも他の手順を妨げません。</p>
   </section>
 
   <section class="card">

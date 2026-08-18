@@ -1,6 +1,6 @@
 /* Service Worker — GitHub Pages サブパス対応 / 更新確実反映
    v5: 8の字校正を任意化。HTMLは network-first。 */
-const CACHE = 'align-pwa-v5';
+const CACHE = 'align-pwa-v6';
 const ASSETS = [
   './', './index.html', './styles.css',
   './estimator.js', './magnetics.js', './sensors.js', './app.js',
